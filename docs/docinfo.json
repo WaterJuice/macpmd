@@ -1,0 +1,4 @@
+{
+  "title": "macpmd",
+  "description": "macOS process manager using launchd for persistence"
+}
