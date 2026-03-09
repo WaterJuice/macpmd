@@ -200,7 +200,8 @@ def is_plist_installed(name: str) -> bool:
 def get_launchd_pid(name: str, sudo: bool = False) -> int:
     """Query launchd for the PID of a managed process. Returns 0 if not running."""
     label = _plist_label(name)
-    sudo_prefix: list[str] = ["sudo"] if sudo else []
+    # Use sudo -n (non-interactive) to avoid password prompts in read-only operations
+    sudo_prefix: list[str] = ["sudo", "-n"] if sudo else []
 
     try:
         result = subprocess.run(
