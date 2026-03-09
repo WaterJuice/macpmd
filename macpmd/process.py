@@ -18,6 +18,7 @@
 # ----------------------------------------------------------------------------------------
 
 import os
+import re
 import signal
 import subprocess
 import time
@@ -33,6 +34,46 @@ from .state import update_process
 # ----------------------------------------------------------------------------------------
 #   Functions
 # ----------------------------------------------------------------------------------------
+
+
+# ----------------------------------------------------------------------------------------
+_PID_RE = re.compile(r"\[macpmd\] Process started at .+ \(PID (\d+)\)")
+
+
+# ----------------------------------------------------------------------------------------
+def _get_pid_from_log(name: str) -> int:
+    """Parse the most recent PID from the log file's [macpmd] start lines.
+
+    This is used as a fallback when launchctl cannot be queried (e.g. sudo
+    processes without cached credentials).
+    """
+    log_path = get_log_path(name)
+    if not log_path.exists():
+        return 0
+
+    try:
+        content = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return 0
+
+    last_pid = 0
+    for match in _PID_RE.finditer(content):
+        last_pid = int(match.group(1))
+
+    return last_pid
+
+
+# ----------------------------------------------------------------------------------------
+def _discover_pid(name: str, sudo: bool) -> int:
+    """Try to find the current PID for a process via launchctl or log fallback."""
+    from .launchd import get_launchd_pid
+
+    pid = get_launchd_pid(name, sudo=sudo)
+    if pid > 0:
+        return pid
+
+    # Fallback: parse PID from log file (works even when sudo -n fails)
+    return _get_pid_from_log(name)
 
 
 # ----------------------------------------------------------------------------------------
@@ -57,25 +98,24 @@ def refresh_status(entry: ProcessEntry) -> ProcessEntry:
     If the stored PID is dead but a launchd plist is installed, queries launchd
     for the real PID (launchd may have restarted the process).
     """
-    from .launchd import get_launchd_pid
     from .launchd import is_plist_installed
 
     if entry.status == "running" and entry.pid > 0:
         if not is_process_alive(entry.pid):
             # Check if launchd restarted the process with a new PID
             if is_plist_installed(entry.name):
-                launchd_pid = get_launchd_pid(entry.name, sudo=entry.sudo)
-                if launchd_pid > 0 and is_process_alive(launchd_pid):
-                    entry.pid = launchd_pid
+                new_pid = _discover_pid(entry.name, entry.sudo)
+                if new_pid > 0 and is_process_alive(new_pid):
+                    entry.pid = new_pid
                     entry.restarts += 1
                     return entry
             entry.status = "errored"
             entry.pid = 0
     elif entry.status in ("errored", "stopped") and is_plist_installed(entry.name):
         # Process was marked dead but launchd may have restarted it
-        launchd_pid = get_launchd_pid(entry.name, sudo=entry.sudo)
-        if launchd_pid > 0 and is_process_alive(launchd_pid):
-            entry.pid = launchd_pid
+        new_pid = _discover_pid(entry.name, entry.sudo)
+        if new_pid > 0 and is_process_alive(new_pid):
+            entry.pid = new_pid
             entry.status = "running"
             entry.restarts += 1
     return entry
