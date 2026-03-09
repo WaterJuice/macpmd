@@ -793,10 +793,6 @@ def _cmd_logs(args: Namespace) -> int:
 # ----------------------------------------------------------------------------------------
 def main() -> int:
     """Entry point: parse arguments and dispatch to subcommand."""
-    if sys.platform != "darwin":
-        print("macpmd requires macOS.", file=sys.stderr)
-        return 1
-
     try:
         return _main_inner()
     except KeyboardInterrupt:
@@ -825,6 +821,11 @@ def _main_inner() -> int:
 
     parser = _create_parser()
     args: Namespace = parser.parse()
+
+    # Check platform after parsing so --help and --version work on any OS.
+    if sys.platform != "darwin":
+        print("macpmd requires macOS.", file=sys.stderr)
+        return 1
 
     commands: dict[str, _CommandHandler] = {
         "add": _cmd_add,

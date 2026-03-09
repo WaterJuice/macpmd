@@ -40,8 +40,11 @@ publish: check-dependencies
 docs-help: check-dependencies version
 	@mkdir -p docs/mkdocs/_include
 	COLUMNS=80 uv run macpmd --help > docs/mkdocs/_include/help_main.txt
+	COLUMNS=80 uv run macpmd add --help > docs/mkdocs/_include/help_add.txt
 	COLUMNS=80 uv run macpmd start --help > docs/mkdocs/_include/help_start.txt
 	COLUMNS=80 uv run macpmd stop --help > docs/mkdocs/_include/help_stop.txt
+	COLUMNS=80 uv run macpmd restart --help > docs/mkdocs/_include/help_restart.txt
+	COLUMNS=80 uv run macpmd delete --help > docs/mkdocs/_include/help_delete.txt
 	COLUMNS=80 uv run macpmd list --help > docs/mkdocs/_include/help_list.txt
 	COLUMNS=80 uv run macpmd logs --help > docs/mkdocs/_include/help_logs.txt
 

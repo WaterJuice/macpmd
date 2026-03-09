@@ -13,7 +13,7 @@
 
 import sys
 
-MIN_PYTHON = (3, 10)
+MIN_PYTHON = (3, 12)
 if sys.version_info < MIN_PYTHON:
     print(
         f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ is required. "

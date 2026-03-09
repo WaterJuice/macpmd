@@ -3,7 +3,9 @@ site_name: macpmd
 
 markdown_extensions:
   - pymdownx.snippets:
-      base_path: docs/mkdocs
+      base_path:
+        - docs/mkdocs
+        - .
       check_paths: false
   - pymdownx.highlight
   - pymdownx.superfences
