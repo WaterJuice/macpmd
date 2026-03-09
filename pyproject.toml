@@ -7,7 +7,7 @@ packages = ["macpmd"]
 
 [project]
 name = "macpmd"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dynamic = ["version"]
 license = "Unlicense"
 authors = [
@@ -24,8 +24,6 @@ classifiers = [
     "License :: OSI Approved :: The Unlicense (Unlicense)",
     "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
@@ -56,7 +54,7 @@ pattern = "default-unprefixed"
 [tool.uv]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 extend-select = ["F", "E", "W", "I", "Q", "B", "TC", "UP"]
@@ -69,7 +67,7 @@ force-single-line = true
 [tool.pyright]
 typeCheckingMode = "strict"
 reportUnusedImport = "error"
-pythonVersion = "3.10"
+pythonVersion = "3.12"
 exclude = [".venv"]
 
 [tool.cal-publish-python]

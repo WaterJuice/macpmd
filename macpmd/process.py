@@ -21,8 +21,8 @@ import os
 import signal
 import subprocess
 import time
+from datetime import UTC
 from datetime import datetime
-from datetime import timezone
 from .logs import get_log_path
 from .logs import rotate_log
 from .state import ProcessEntry
@@ -94,7 +94,7 @@ def refresh_all_statuses() -> dict[str, ProcessEntry]:
 # ----------------------------------------------------------------------------------------
 def _log_event(log_path_str: str, event: str) -> None:
     """Append a [macpmd] event line to the log file."""
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
     try:
         with open(log_path_str, "a", encoding="utf-8") as f:
             f.write(f"[macpmd] {event} at {timestamp}\n")
@@ -163,7 +163,7 @@ def start_process(entry: ProcessEntry) -> tuple[bool, str]:
 
     entry.pid = proc.pid
     entry.status = "running"
-    entry.started_at = datetime.now(timezone.utc).isoformat()
+    entry.started_at = datetime.now(UTC).isoformat()
     update_process(entry)
 
     # Close our handle to the log file — the child process has its own

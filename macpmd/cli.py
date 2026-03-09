@@ -2,9 +2,9 @@
 #   cli.py
 #   ------
 #
-#   CLI argument parsing and subcommand handlers. Provides commands for starting,
-#   stopping, restarting, deleting, listing processes, viewing logs, and setting
-#   up launchd persistence.
+#   CLI argument parsing and subcommand handlers. Provides commands for adding,
+#   starting, stopping, restarting, deleting, listing processes, viewing logs,
+#   and setting up launchd persistence.
 #
 #   (c) 2026 WaterJuice — Released under the Unlicense; see LICENSE.
 #
@@ -18,12 +18,14 @@
 # ----------------------------------------------------------------------------------------
 
 import os
+import re
 import subprocess
 import sys
 import traceback
 from collections.abc import Callable
+from datetime import UTC
 from datetime import datetime
-from datetime import timezone
+from pathlib import PurePosixPath
 from .argbuilder import ArgsParser
 from .argbuilder import Namespace
 from .colour import bold
@@ -66,6 +68,35 @@ _COL_LAUNCHD = 10
 # Type alias for subcommand handler functions.
 _CommandHandler = Callable[[Namespace], int]
 
+# Interpreters whose name should be skipped when deriving a process name.
+_INTERPRETERS = frozenset(
+    {
+        "bash",
+        "sh",
+        "zsh",
+        "fish",
+        "dash",
+        "ksh",
+        "csh",
+        "tcsh",
+        "python",
+        "python3",
+        "python2",
+        "node",
+        "deno",
+        "bun",
+        "ruby",
+        "perl",
+        "php",
+        "java",
+        "kotlin",
+        "scala",
+        "go",
+        "cargo",
+        "rustc",
+    }
+)
+
 _LICENCE_TEXT = """\
 macpmd — Released under the Unlicense (public domain)
 
@@ -90,7 +121,7 @@ def _create_parser() -> ArgsParser:
     parser = ArgsParser(
         prog="macpmd",
         description="macOS process manager using launchd for persistence.",
-        version=f"macpmd {VERSION_STR}",
+        version=f"macpmd: {VERSION_STR}\npython: {sys.version.split()[0]}",
     )
 
     # Top-level options -------------------------------------------------------
@@ -101,28 +132,46 @@ def _create_parser() -> ArgsParser:
         help="Show license information and exit",
     )
 
-    # start ------------------------------------------------------------------
-    start_cmd = parser.add_command(
-        "start",
-        help="Start and register a new process",
+    # add --------------------------------------------------------------------
+    add_cmd = parser.add_command(
+        "add",
+        help="Register and start a new process",
     )
-    start_cmd.add_argument(
+    add_cmd.add_argument(
         "cmd",
         metavar="COMMAND",
         help="The command to run (e.g. 'node server.js')",
     )
-    start_cmd.add_argument(
+    add_cmd.add_argument(
         "--name",
         "-n",
-        required=True,
         metavar="NAME",
-        help="Name for the process",
+        help="Name for the process (auto-derived from command if omitted)",
     )
-    start_cmd.add_argument(
+    add_cmd.add_argument(
         "--sudo",
         "-s",
         action="store_true",
         help="Run the process with sudo",
+    )
+
+    # start ------------------------------------------------------------------
+    start_cmd = parser.add_command(
+        "start",
+        help="Start one or more stopped/errored processes",
+    )
+    start_cmd.add_argument(
+        "names",
+        nargs="*",
+        metavar="NAME",
+        help="Names of the processes to start",
+    )
+    start_cmd.add_argument(
+        "--all",
+        "-a",
+        action="store_true",
+        dest="all_processes",
+        help="Start all stopped/errored processes",
     )
 
     # stop -------------------------------------------------------------------
@@ -236,7 +285,7 @@ def _format_uptime(started_at: str) -> str:
         return "-"
     try:
         start = datetime.fromisoformat(started_at)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         delta = now - start
         total_seconds = int(delta.total_seconds())
         if total_seconds < 0:
@@ -294,6 +343,51 @@ def _resolve_names(args: Namespace, verb: str) -> list[str] | None:
 
 
 # ----------------------------------------------------------------------------------------
+def _derive_name(command: str) -> str:
+    """Derive a process name from a shell command.
+
+    Takes the first meaningful token (skipping interpreters), strips the path
+    and extension, and sanitises to alphanumeric characters and hyphens.
+    """
+    tokens = command.split()
+    if not tokens:
+        return "process"
+
+    # Pick the first token, but skip known interpreters
+    candidate = tokens[0]
+    basename = PurePosixPath(candidate).stem
+    if basename in _INTERPRETERS and len(tokens) > 1:
+        candidate = tokens[1]
+        # Skip interpreter flags like -u, -m, --flag
+        idx = 1
+        while idx < len(tokens) and tokens[idx].startswith("-"):
+            idx += 1
+        if idx < len(tokens):
+            candidate = tokens[idx]
+
+    # Strip path and extension
+    name = PurePosixPath(candidate).stem
+
+    # Sanitise: keep only alphanumeric, hyphens, underscores
+    name = re.sub(r"[^a-zA-Z0-9_-]", "-", name)
+    name = re.sub(r"-+", "-", name).strip("-")
+
+    return name if name else "process"
+
+
+# ----------------------------------------------------------------------------------------
+def _unique_name(base_name: str) -> str:
+    """Return a unique process name, appending -2, -3 etc. if needed."""
+    processes = load_state()
+    if base_name not in processes:
+        return base_name
+    n = 2
+    while f"{base_name}-{n}" in processes:
+        n += 1
+    return f"{base_name}-{n}"
+
+
+# ----------------------------------------------------------------------------------------
 def _ensure_sudo() -> bool:
     """Ensure sudo credentials are available. Returns True on success."""
     check = subprocess.run(
@@ -317,24 +411,29 @@ def _ensure_sudo() -> bool:
 
 
 # ----------------------------------------------------------------------------------------
-def _cmd_start(args: Namespace) -> int:
-    """Start and register a new process."""
-    name: str = args.name
+def _cmd_add(args: Namespace) -> int:
+    """Register and start a new process."""
     command: str = args.cmd
     use_sudo: bool = args.sudo
 
-    existing = get_process(name)
-    if (
-        existing is not None
-        and existing.status == "running"
-        and is_process_alive(existing.pid)
-    ):
-        print(yellow(f"Process '{name}' is already running (PID {existing.pid})."))
-        return 0
+    # Derive or validate name
+    name: str | None = args.name
+    if name:
+        existing = get_process(name)
+        if (
+            existing is not None
+            and existing.status == "running"
+            and is_process_alive(existing.pid)
+        ):
+            print(yellow(f"Process '{name}' is already running (PID {existing.pid})."))
+            return 0
+    else:
+        name = _unique_name(_derive_name(command))
 
     cwd = os.getcwd()
     env = dict(os.environ)
 
+    existing = get_process(name)
     entry = ProcessEntry(
         name=name,
         command=command,
@@ -365,6 +464,56 @@ def _cmd_start(args: Namespace) -> int:
         print(yellow(f"Warning: {plist_msg}"), file=sys.stderr)
 
     return 0
+
+
+# ----------------------------------------------------------------------------------------
+def _cmd_start(args: Namespace) -> int:
+    """Start one or more stopped/errored processes."""
+    names = _resolve_names(args, "start")
+    if names is None:
+        return 1
+    if not names:
+        return 0
+
+    if not _ensure_sudo_for_entries(names):
+        print(red("Failed to obtain sudo credentials."), file=sys.stderr)
+        return 1
+
+    rc = 0
+    for name in names:
+        entry = get_process(name)
+        if entry is None:
+            print(red(f"Process '{name}' not found."), file=sys.stderr)
+            rc = 1
+            continue
+
+        if entry.status == "running" and is_process_alive(entry.pid):
+            print(yellow(f"Process '{name}' is already running (PID {entry.pid})."))
+            continue
+
+        # For sudo processes, validate credentials
+        if entry.sudo:
+            if not _ensure_sudo():
+                print(red("Failed to obtain sudo credentials."), file=sys.stderr)
+                rc = 1
+                continue
+
+        ok, msg = start_process(entry)
+        if not ok:
+            print(red(msg), file=sys.stderr)
+            rc = 1
+            continue
+
+        print(green(msg))
+
+        # Install launchd plist for boot persistence and crash recovery
+        plist_ok, plist_msg = install_plist(entry)
+        if plist_ok:
+            print(dim(plist_msg))
+        else:
+            print(yellow(f"Warning: {plist_msg}"), file=sys.stderr)
+
+    return rc
 
 
 # ----------------------------------------------------------------------------------------
@@ -678,6 +827,7 @@ def _main_inner() -> int:
     args: Namespace = parser.parse()
 
     commands: dict[str, _CommandHandler] = {
+        "add": _cmd_add,
         "start": _cmd_start,
         "stop": _cmd_stop,
         "restart": _cmd_restart,

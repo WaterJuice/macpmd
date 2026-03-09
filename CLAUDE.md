@@ -4,7 +4,7 @@ This file provides guidance for AI agents working on this project.
 
 ## Project Overview
 
-macpmd is a macOS process manager — a PM2 equivalent that uses launchd for persistence and crash recovery. It provides a CLI (using a custom argbuilder, not click) for starting, stopping, restarting, listing, and monitoring processes. Processes are spawned in new sessions so they survive terminal closure. Starting a process automatically installs a launchd plist for boot persistence and crash recovery.
+macpmd is a macOS process manager — a PM2 equivalent that uses launchd for persistence and crash recovery. It provides a CLI (using a custom argbuilder, not click) for adding, starting, stopping, restarting, listing, and monitoring processes. Processes are spawned in new sessions so they survive terminal closure. Adding a process automatically starts it and installs a launchd plist for boot persistence and crash recovery.
 
 ## Language and Spelling
 
@@ -57,7 +57,7 @@ def my_function() -> None:
 
 ### General
 
-- Python 3.10+ (do **not** use `from __future__ import annotations`)
+- Python 3.12+ (do **not** use `from __future__ import annotations`)
 - Use type hints throughout
 - Prefer pathlib.Path over os.path
 - Single-line imports, no blank lines between import groups (configured in pyproject.toml)
@@ -104,7 +104,7 @@ macpmd/
 - Process lifecycle events (start, restart, exit) are logged with `[macpmd]` prefix
 
 ### launchd Integration
-- Starting a process automatically installs a launchd plist
+- Adding a process automatically installs a launchd plist
 - Stopping a process uninstalls its plist first (prevents launchd restarting it)
 - Restarting uninstalls plist, restarts, then reinstalls plist
 - Plists are installed in `~/Library/LaunchAgents/`
@@ -112,7 +112,8 @@ macpmd/
 - Label format: `com.macpmd.<name>`
 
 ### CLI Commands
-- `start` — start a process (supports `--sudo`)
+- `add` — register and start a new process (supports optional `--name` and `--sudo`)
+- `start` — start existing stopped/errored processes (supports multiple names and `--all`)
 - `stop` — stop one or more processes (supports multiple names and `--all`)
 - `restart` — restart one or more processes (supports multiple names and `--all`)
 - `delete` — remove one or more processes (supports multiple names and `--all`)
@@ -132,7 +133,7 @@ macpmd/
 2. **Shell execution** — commands run via `shell=True` for user convenience (pipes, env vars, etc.).
 3. **Session isolation** — `start_new_session=True` so processes survive terminal closure.
 4. **launchd for persistence** — native macOS approach for boot persistence and crash recovery.
-5. **Auto-install plists** — no separate `startup` command; plists installed on `start`.
+5. **Auto-install plists** — no separate `startup` command; plists installed on `add`.
 6. **Simple state file** — JSON in ~/.local/share/macpmd/ for easy debugging and manual inspection.
 7. **Shell wrapper for lifecycle logging** — commands wrapped with printf to log start/exit events, works for both macpmd and launchd restarts.
 

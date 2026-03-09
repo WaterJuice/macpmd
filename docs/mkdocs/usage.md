@@ -2,35 +2,58 @@
 
 macpmd provides a command-line interface for managing long-running processes on macOS.
 
-## `start` — Start a process
+## `add` — Add a process
 
 ```bash
-macpmd start "<command>" --name <name>
-macpmd start "<command>" --name <name> --sudo
+macpmd add "<command>"
+macpmd add "<command>" --name <name>
+macpmd add "<command>" --name <name> --sudo
 ```
 
-Starts a new process and registers it with macpmd. The command is executed via the shell, so pipes, environment variables, and other shell features work. A launchd plist is automatically installed so the process survives reboots and recovers from crashes.
+Registers a new process with macpmd and starts it. The command is executed via the shell, so pipes, environment variables, and other shell features work. A launchd plist is automatically installed so the process survives reboots and recovers from crashes.
+
+If `--name` is omitted, the name is auto-derived from the command.
 
 ```bash
-# Start a Node.js server
-macpmd start "node server.js" --name my-api
+# Name auto-derived as "server"
+macpmd add "node server.js"
 
-# Start a Python script
-macpmd start "python3 worker.py" --name worker
+# Explicit name
+macpmd add "python3 worker.py" --name my-worker
 
-# Start with sudo
-macpmd start "python3 server.py" --name privileged-app --sudo
+# With sudo
+macpmd add "python3 server.py" --name my-app --sudo
 
-# Start with shell features
-macpmd start "cd /opt/app && ./run.sh 2>&1 | tee extra.log" --name app
+# With shell features
+macpmd add "cd /opt/app && ./run.sh 2>&1 | tee extra.log" --name app
 ```
 
 The process is spawned in a new session, so it continues running after the terminal closes. The working directory and environment are captured at start time.
 
-| Option          | Description                              |
-|-----------------|------------------------------------------|
-| `--name`, `-n`  | Name for the process (required)          |
-| `--sudo`, `-s`  | Run the process with sudo                |
+| Option          | Description                                         |
+|-----------------|-----------------------------------------------------|
+| `--name`, `-n`  | Name for the process (auto-derived if omitted)      |
+| `--sudo`, `-s`  | Run the process with sudo                           |
+
+## `start` — Start existing processes
+
+```bash
+macpmd start <name> [<name> ...]
+macpmd start --all
+```
+
+Starts existing stopped or errored processes. The launchd plist is reinstalled so the process resumes boot persistence and crash recovery.
+
+```bash
+# Start a stopped process
+macpmd start my-app
+
+# Start multiple processes
+macpmd start my-app worker
+
+# Start all stopped processes
+macpmd start --all
+```
 
 ## `stop` — Stop processes
 

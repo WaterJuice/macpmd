@@ -6,7 +6,7 @@ macpmd makes it easy to manage long-running processes on macOS. Start, stop, res
 
 ## Features
 
-- **Process management** — start, stop, restart, and delete processes
+- **Process management** — add, start, stop, restart, and delete processes
 - **Batch operations** — operate on multiple processes at once, or use `--all`
 - **Process listing** — view all processes with status, PID, uptime, restart count, and launchd state
 - **Log management** — stdout/stderr redirected to `~/.local/share/macpmd/logs/` with automatic rotation
@@ -19,7 +19,7 @@ macpmd makes it easy to manage long-running processes on macOS. Start, stop, res
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.12+
 - macOS (uses launchd and launchctl)
 
 ## Installation
@@ -37,11 +37,14 @@ uvx macpmd
 ## Quick Start
 
 ```bash
-# Start a process (automatically registered with launchd)
-macpmd start "node server.js" --name my-app
+# Add a process (name auto-derived as "server")
+macpmd add "node server.js"
 
-# Start with sudo
-macpmd start "python3 server.py" --name my-app --sudo
+# Add with an explicit name
+macpmd add "python3 worker.py" --name my-worker
+
+# Add with sudo
+macpmd add "python3 server.py" --name my-app --sudo
 
 # List all processes
 macpmd list
@@ -51,6 +54,12 @@ macpmd logs my-app
 macpmd logs my-app --follow
 macpmd logs --all
 macpmd logs --all --follow
+
+# Start a stopped process
+macpmd start my-app
+
+# Start all stopped processes
+macpmd start --all
 
 # Restart a process
 macpmd restart my-app
@@ -69,7 +78,7 @@ macpmd delete my-app
 
 macpmd spawns processes in new sessions (`start_new_session`) so they survive the parent terminal closing. Process state is tracked in `~/.local/share/macpmd/state.json` and logs are written to `~/.local/share/macpmd/logs/<name>.log`.
 
-When you start a process, a launchd plist is automatically installed in `~/Library/LaunchAgents/` with:
+When you add a process, a launchd plist is automatically installed in `~/Library/LaunchAgents/` with:
 
 - **`KeepAlive: true`** — launchd restarts the process if it crashes
 - **`RunAtLoad: true`** — the process starts automatically at login
