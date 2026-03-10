@@ -12,12 +12,16 @@ macpmd bridges the gap — a simple CLI for managing processes that integrates w
 
 - **Process management** — add, start, stop, restart, and delete processes
 - **Batch operations** — operate on multiple processes at once, or use `--all`
-- **Process listing** — view all processes with status, PID, uptime, restart count, and launchd state
+- **Process listing** — view all processes with status, PID, uptime, restart count, sudo, and launchd state
+- **Process info** — detailed view of any process including full command, with JSON output support
 - **Log management** — stdout/stderr redirected to `~/.local/share/macpmd/logs/` with automatic rotation
 - **Log tailing** — view recent output, follow in real-time, or show all process logs with coloured prefixes
 - **Exit code logging** — process exit codes and signals are recorded in the log
+- **Immediate failure detection** — commands that fail on `add` are reported immediately and not persisted
 - **launchd integration** — plists auto-installed on `add` for boot persistence and crash recovery
-- **Sudo support** — start processes with `--sudo` for elevated privileges
+- **Self-healing** — `fix` command reinstalls missing launchd plists
+- **Sudo support** — start processes with `--sudo` for elevated privileges (uses LaunchDaemons)
+- **TCC path protection** — prevents `--sudo` processes from using macOS-protected directories
 - **Session isolation** — processes survive terminal closure
 - **Zero dependencies** — stdlib only
 
@@ -67,7 +71,7 @@ See the [Usage](usage.md) page for full details on all commands.
 
 macpmd spawns processes in new sessions so they survive the parent terminal closing. Process state is tracked in `~/.local/share/macpmd/state.json` and logs are written to `~/.local/share/macpmd/logs/<name>.log`.
 
-When you add a process, a launchd plist is automatically installed in `~/Library/LaunchAgents/` with:
+When you add a process, a launchd plist is automatically installed in `~/Library/LaunchAgents/` (or `/Library/LaunchDaemons/` for `--sudo` processes) with:
 
 - **`KeepAlive: true`** — launchd restarts the process if it crashes
 - **`RunAtLoad: true`** — the process starts automatically at login

@@ -130,9 +130,10 @@ Displays a table of all registered processes with:
 | PID      | Process ID (if running)                              |
 | Uptime   | Time since the process was last started               |
 | Restarts | Number of times the process has been restarted        |
+| Sudo     | Whether the process runs with sudo                   |
 | launchd  | Whether a launchd plist is installed                  |
 
-Process statuses are refreshed automatically — if a process has died since the last check, its status is updated to `errored`.
+Process statuses are refreshed automatically — if a process has died since the last check, its status is updated to `errored`. If a running process is missing its launchd plist, the launchd column is shown in red as a warning — use `macpmd fix` to reinstall it.
 
 ## `logs` — View process logs
 
@@ -185,6 +186,40 @@ Log files are rotated automatically when they exceed 10 MB. Up to 3 rotated file
 
 The `logs` command reads across all rotated files, so `--lines 50` gives you the last 50 lines from the full history. Use `--lines 0` to show all available log history.
 
+## `info` — Show process details
+
+```bash
+macpmd info <name> [<name> ...]
+macpmd info --all
+macpmd info <name> --json
+```
+
+Shows detailed information about one or more processes, including the full command and working directory.
+
+```bash
+# Show info for a single process
+macpmd info my-app
+
+# Show info for multiple processes
+macpmd info my-app worker
+
+# Show info for all processes as JSON
+macpmd info --all --json
+```
+
+| Option          | Description                                        |
+|-----------------|----------------------------------------------------|
+| `--all`, `-a`   | Show info for all processes                        |
+| `--json`, `-j`  | Output as JSON                                     |
+
+## `fix` — Fix missing launchd plists
+
+```bash
+macpmd fix
+```
+
+Checks all running processes and reinstalls any missing launchd plists. This is useful if a plist was accidentally removed or if external interference caused a process to lose its plist.
+
 ## Global Options
 
 | Option       | Description                         |
@@ -199,4 +234,5 @@ The `logs` command reads across all rotated files, so `--lines 50` gives you the
 |-------------------------------------|----------------------------------|
 | `~/.local/share/macpmd/state.json`             | Process state and configuration  |
 | `~/.local/share/macpmd/logs/<name>.log`        | Process stdout/stderr            |
-| `~/Library/LaunchAgents/com.macpmd.<name>.plist` | launchd plist    |
+| `~/Library/LaunchAgents/com.macpmd.<name>.plist` | launchd plist (standard processes) |
+| `/Library/LaunchDaemons/com.macpmd.<name>.plist` | launchd plist (sudo processes)   |

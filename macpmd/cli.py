@@ -17,6 +17,7 @@
 #   Imports
 # ----------------------------------------------------------------------------------------
 
+import json
 import os
 import re
 import subprocess
@@ -25,6 +26,7 @@ import traceback
 from collections.abc import Callable
 from datetime import UTC
 from datetime import datetime
+from pathlib import Path
 from pathlib import PurePosixPath
 from .argbuilder import ArgsParser
 from .argbuilder import Namespace
@@ -44,6 +46,7 @@ from .logs import prefix_log_lines
 from .logs import tail_log
 from .process import is_process_alive
 from .process import refresh_all_statuses
+from .process import refresh_status
 from .process import restart_process
 from .process import start_process
 from .process import stop_process
@@ -270,6 +273,38 @@ def _create_parser() -> ArgsParser:
         help="Follow log output in real-time",
     )
 
+    # info -------------------------------------------------------------------
+    info_cmd = parser.add_command(
+        "info",
+        help="Show detailed information about one or more processes",
+    )
+    info_cmd.add_argument(
+        "names",
+        nargs="*",
+        metavar="NAME",
+        help="Names of the processes",
+    )
+    info_cmd.add_argument(
+        "--all",
+        "-a",
+        action="store_true",
+        dest="all_processes",
+        help="Show info for all processes",
+    )
+    info_cmd.add_argument(
+        "--json",
+        "-j",
+        action="store_true",
+        dest="json_output",
+        help="Output as JSON",
+    )
+
+    # fix --------------------------------------------------------------------
+    parser.add_command(
+        "fix",
+        help="Reinstall missing launchd plists for running processes",
+    )
+
     return parser
 
 
@@ -340,6 +375,65 @@ def _resolve_names(args: Namespace, verb: str) -> list[str] | None:
         return None
 
     return names
+
+
+# ----------------------------------------------------------------------------------------
+# TCC-protected directory names within user home folders. LaunchDaemons running as root
+# cannot access these directories without Full Disk Access, which causes "operation not
+# permitted" errors after reboot.
+_TCC_PROTECTED_DIRS = frozenset(
+    {
+        "Desktop",
+        "Documents",
+        "Downloads",
+    }
+)
+
+
+# ----------------------------------------------------------------------------------------
+def _check_tcc_paths(command: str, cwd: str) -> str | None:
+    """Check if a sudo command or working directory references a TCC-protected path.
+
+    Returns an error message if a protected path is found, or None if all clear.
+    macOS prevents LaunchDaemons (root) from accessing ~/Desktop, ~/Documents,
+    and ~/Downloads without Full Disk Access, causing silent failures after reboot.
+    """
+    home_prefix = str(Path.home())
+    paths_to_check = [cwd, command]
+
+    for path_str in paths_to_check:
+        # Expand ~ if present
+        expanded = str(Path(path_str).expanduser()) if "~" in path_str else path_str
+
+        # Check if the path is under a TCC-protected directory
+        if expanded.startswith(home_prefix + "/"):
+            relative = expanded[len(home_prefix) + 1 :]
+            top_dir = relative.split("/")[0]
+            if top_dir in _TCC_PROTECTED_DIRS:
+                return (
+                    f"Cannot use --sudo with paths in ~/{top_dir}/.\n"
+                    f"macOS prevents LaunchDaemons from accessing TCC-protected\n"
+                    f"directories (Desktop, Documents, Downloads). Move the command\n"
+                    f"and working directory elsewhere (e.g. ~/bin/)."
+                )
+
+    # Also check each token in the command for paths
+    for token in command.split():
+        if "/" not in token:
+            continue
+        expanded = str(Path(token).expanduser()) if "~" in token else token
+        if expanded.startswith(home_prefix + "/"):
+            relative = expanded[len(home_prefix) + 1 :]
+            top_dir = relative.split("/")[0]
+            if top_dir in _TCC_PROTECTED_DIRS:
+                return (
+                    f"Cannot use --sudo with paths in ~/{top_dir}/.\n"
+                    f"macOS prevents LaunchDaemons from accessing TCC-protected\n"
+                    f"directories (Desktop, Documents, Downloads). Move the command\n"
+                    f"and working directory elsewhere (e.g. ~/bin/)."
+                )
+
+    return None
 
 
 # ----------------------------------------------------------------------------------------
@@ -433,6 +527,13 @@ def _cmd_add(args: Namespace) -> int:
     cwd = os.getcwd()
     env = dict(os.environ)
 
+    # For sudo processes, check for TCC-protected paths that will fail as LaunchDaemons
+    if use_sudo:
+        tcc_warning = _check_tcc_paths(command, cwd)
+        if tcc_warning:
+            print(red(tcc_warning), file=sys.stderr)
+            return 1
+
     existing = get_process(name)
     entry = ProcessEntry(
         name=name,
@@ -451,6 +552,8 @@ def _cmd_add(args: Namespace) -> int:
 
     ok, msg = start_process(entry)
     if not ok:
+        # Process failed to start — remove it from state so it does not linger
+        remove_process(name)
         print(red(msg), file=sys.stderr)
         return 1
 
@@ -687,7 +790,13 @@ def _cmd_list(_args: Namespace) -> int:
         )
         restarts_str = str(entry.restarts)
         sudo_str = "yes" if entry.sudo else "no"
-        launchd_str = green("yes") if is_plist_installed(name) else dim("no")
+        has_plist = is_plist_installed(name)
+        if has_plist:
+            launchd_str = green("yes")
+        elif entry.status == "running":
+            launchd_str = red("no")
+        else:
+            launchd_str = dim("no")
 
         # Pad plain text before colourising
         status_plain = entry.status
@@ -708,6 +817,97 @@ def _cmd_list(_args: Namespace) -> int:
         print(
             f"{col_name}{col_status}{col_pid}{col_uptime}{col_restarts}{col_sudo}{col_launchd}"
         )
+
+    return 0
+
+
+# ----------------------------------------------------------------------------------------
+def _cmd_info(args: Namespace) -> int:
+    """Show detailed information about one or more processes."""
+    names = _resolve_names(args, "show info for")
+    if names is None:
+        return 1
+    if not names:
+        return 0
+
+    use_json: bool = args.json_output
+    json_entries: list[dict[str, object]] = []
+
+    rc = 0
+    for i, name in enumerate(names):
+        entry = get_process(name)
+        if entry is None:
+            print(red(f"Process '{name}' not found."), file=sys.stderr)
+            rc = 1
+            continue
+
+        refresh_status(entry)
+
+        has_plist = is_plist_installed(name)
+        uptime_str = (
+            _format_uptime(entry.started_at) if entry.status == "running" else "-"
+        )
+
+        if use_json:
+            json_entries.append(
+                {
+                    "name": entry.name,
+                    "status": entry.status,
+                    "command": entry.command,
+                    "cwd": entry.cwd,
+                    "pid": entry.pid if entry.pid > 0 else None,
+                    "uptime": uptime_str,
+                    "started_at": entry.started_at,
+                    "restarts": entry.restarts,
+                    "sudo": entry.sudo,
+                    "launchd": has_plist,
+                }
+            )
+        else:
+            if i > 0:
+                print()
+
+            print(f"{bold('Name:')}        {cyan(entry.name)}")
+            print(f"{bold('Status:')}      {_status_colour(entry.status)}")
+            print(f"{bold('Command:')}     {entry.command}")
+            print(f"{bold('Working dir:')} {entry.cwd}")
+            print(f"{bold('PID:')}         {entry.pid if entry.pid > 0 else '-'}")
+            print(f"{bold('Uptime:')}      {uptime_str}")
+            print(f"{bold('Restarts:')}    {entry.restarts}")
+            print(f"{bold('Sudo:')}        {'yes' if entry.sudo else 'no'}")
+            print(f"{bold('launchd:')}     {'yes' if has_plist else 'no'}")
+
+    if use_json:
+        output = json_entries[0] if len(json_entries) == 1 else json_entries
+        print(json.dumps(output, indent=2))
+
+    return rc
+
+
+# ----------------------------------------------------------------------------------------
+def _cmd_fix(_args: Namespace) -> int:
+    """Reinstall missing launchd plists for running processes."""
+    processes = refresh_all_statuses()
+    if not processes:
+        print(dim("No processes registered."))
+        return 0
+
+    fixed = 0
+    for name, entry in sorted(processes.items()):
+        if entry.status == "running" and not is_plist_installed(name):
+            if entry.sudo:
+                if not _ensure_sudo():
+                    print(red("Failed to obtain sudo credentials."), file=sys.stderr)
+                    return 1
+            ok, msg = install_plist(entry)
+            if ok:
+                print(green(f"Fixed '{name}': {msg}"))
+                fixed += 1
+            else:
+                print(red(f"Failed to fix '{name}': {msg}"), file=sys.stderr)
+
+    if fixed == 0:
+        print(dim("Nothing to fix — all running processes have launchd plists."))
 
     return 0
 
@@ -834,6 +1034,8 @@ def _main_inner() -> int:
         "restart": _cmd_restart,
         "delete": _cmd_delete,
         "list": _cmd_list,
+        "info": _cmd_info,
+        "fix": _cmd_fix,
         "logs": _cmd_logs,
     }
 

@@ -107,9 +107,11 @@ macpmd/
 - Adding a process automatically installs a launchd plist
 - Stopping a process uninstalls its plist first (prevents launchd restarting it)
 - Restarting uninstalls plist, restarts, then reinstalls plist
-- Plists are installed in `~/Library/LaunchAgents/`
+- Standard processes: plists installed in `~/Library/LaunchAgents/`
+- Sudo processes: plists installed in `/Library/LaunchDaemons/` (runs as root)
 - Plists use `KeepAlive: true` for crash recovery and `RunAtLoad: true` for boot persistence
 - Label format: `com.macpmd.<name>`
+- TCC-protected directories (Desktop, Documents, Downloads) are blocked for `--sudo` processes as LaunchDaemons cannot access them
 
 ### CLI Commands
 - `add` — register and start a new process (supports optional `--name` and `--sudo`)
@@ -118,6 +120,8 @@ macpmd/
 - `restart` — restart one or more processes (supports multiple names and `--all`)
 - `delete` — remove one or more processes (supports multiple names and `--all`)
 - `list` — show all processes in a table
+- `info` — show detailed process information (supports multiple names, `--all`, `--json`)
+- `fix` — reinstall missing launchd plists for running processes
 - `logs` — view logs (supports multiple names, `--all`, `--follow`, `--lines`)
 
 ### Log Management

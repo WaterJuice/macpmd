@@ -143,6 +143,22 @@ def _log_event(log_path_str: str, event: str) -> None:
 
 
 # ----------------------------------------------------------------------------------------
+def _read_last_log_lines(name: str, max_lines: int = 5) -> str:
+    """Read the last few lines from a process log file for error context."""
+    log_path = get_log_path(name)
+    if not log_path.exists():
+        return ""
+    try:
+        content = log_path.read_text(encoding="utf-8", errors="replace").strip()
+        if not content:
+            return ""
+        lines = content.splitlines()[-max_lines:]
+        return "\n".join(lines)
+    except OSError:
+        return ""
+
+
+# ----------------------------------------------------------------------------------------
 def wrap_command(command: str) -> str:
     """Wrap a command so it logs start and exit events to stdout.
 
@@ -208,6 +224,26 @@ def start_process(entry: ProcessEntry) -> tuple[bool, str]:
 
     # Close our handle to the log file — the child process has its own
     log_file.close()
+
+    # Poll briefly to catch commands that fail immediately (e.g. not found,
+    # not executable, permission denied). The shell wrapper adds a small
+    # overhead so we poll over 1.5 seconds rather than a single check.
+    exit_code = None
+    for _ in range(15):
+        time.sleep(0.1)
+        exit_code = proc.poll()
+        if exit_code is not None:
+            break
+    if exit_code is not None:
+        entry.status = "errored"
+        entry.pid = 0
+        update_process(entry)
+        # Read recent log output for context on why it failed
+        hint = _read_last_log_lines(entry.name, max_lines=5)
+        msg = f"Process '{entry.name}' exited immediately (code {exit_code})."
+        if hint:
+            msg += f"\n{hint}"
+        return False, msg
 
     return True, f"Process '{entry.name}' started (PID {proc.pid})."
 
