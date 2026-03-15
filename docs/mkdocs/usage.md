@@ -1,6 +1,6 @@
 # Usage
 
-macpmd provides a command-line interface for managing long-running processes on macOS.
+macpmd provides a command-line interface for managing long-running processes on macOS and Linux.
 
 ## `add` — Add a process
 
@@ -10,7 +10,7 @@ macpmd add "<command>" --name <name>
 macpmd add "<command>" --name <name> --sudo
 ```
 
-Registers a new process with macpmd and starts it. The command is executed via the shell, so pipes, environment variables, and other shell features work. A launchd plist is automatically installed so the process survives reboots and recovers from crashes.
+Registers a new process with macpmd and starts it. The command is executed via the shell, so pipes, environment variables, and other shell features work. A service file is automatically installed (launchd plist on macOS, systemd unit on Linux) so the process survives reboots and recovers from crashes.
 
 If `--name` is omitted, the name is auto-derived from the command.
 
@@ -42,7 +42,7 @@ macpmd start <name> [<name> ...]
 macpmd start --all
 ```
 
-Starts existing stopped or errored processes. The launchd plist is reinstalled so the process resumes boot persistence and crash recovery.
+Starts existing stopped or errored processes. The service file is reinstalled so the process resumes boot persistence and crash recovery.
 
 ```bash
 # Start a stopped process
@@ -62,7 +62,7 @@ macpmd stop <name> [<name> ...]
 macpmd stop --all
 ```
 
-Sends SIGTERM to the process group. If the process does not exit within 3 seconds, SIGKILL is sent. The launchd plist is uninstalled first so launchd does not restart the process.
+Sends SIGTERM to the process group. If the process does not exit within 3 seconds, SIGKILL is sent. The service file is uninstalled first so the service manager does not restart the process.
 
 ```bash
 # Stop a single process
@@ -82,7 +82,7 @@ macpmd restart <name> [<name> ...]
 macpmd restart --all
 ```
 
-Stops the process (if running) and starts it again. The restart counter is incremented. The launchd plist is reinstalled with the updated state.
+Stops the process (if running) and starts it again. The restart counter is incremented. The service file is reinstalled with the updated state.
 
 ```bash
 # Restart a single process
@@ -102,7 +102,7 @@ macpmd delete <name> [<name> ...]
 macpmd delete --all
 ```
 
-Stops the process (if running), uninstalls its launchd plist, deletes its log files, and removes it from macpmd's state.
+Stops the process (if running), uninstalls its service file, deletes its log files, and removes it from macpmd's state.
 
 ```bash
 # Delete a single process
@@ -131,9 +131,9 @@ Displays a table of all registered processes with:
 | Uptime   | Time since the process was last started               |
 | Restarts | Number of times the process has been restarted        |
 | Sudo     | Whether the process runs with sudo                   |
-| launchd  | Whether a launchd plist is installed                  |
+| launchd / systemd | Whether a service file is installed           |
 
-Process statuses are refreshed automatically — if a process has died since the last check, its status is updated to `errored`. If a running process is missing its launchd plist, the launchd column is shown in red as a warning — use `macpmd fix` to reinstall it.
+Process statuses are refreshed automatically — if a process has died since the last check, its status is updated to `errored`. If a running process is missing its service file, the service column is shown in red as a warning — use `macpmd fix` to reinstall it.
 
 ## `logs` — View process logs
 
@@ -212,13 +212,13 @@ macpmd info --all --json
 | `--all`, `-a`   | Show info for all processes                        |
 | `--json`, `-j`  | Output as JSON                                     |
 
-## `fix` — Fix missing launchd plists
+## `fix` — Fix missing service files
 
 ```bash
 macpmd fix
 ```
 
-Checks all running processes and reinstalls any missing launchd plists. This is useful if a plist was accidentally removed or if external interference caused a process to lose its plist.
+Checks all running processes and reinstalls any missing service files (launchd plists on macOS, systemd units on Linux). This is useful if a service file was accidentally removed or if external interference caused a process to lose its service registration.
 
 ## Global Options
 
@@ -234,5 +234,17 @@ Checks all running processes and reinstalls any missing launchd plists. This is 
 |-------------------------------------|----------------------------------|
 | `~/.local/share/macpmd/state.json`             | Process state and configuration  |
 | `~/.local/share/macpmd/logs/<name>.log`        | Process stdout/stderr            |
-| `~/Library/LaunchAgents/com.macpmd.<name>.plist` | launchd plist (standard processes) |
-| `/Library/LaunchDaemons/com.macpmd.<name>.plist` | launchd plist (sudo processes)   |
+
+### macOS (launchd)
+
+| Path                                                  | Purpose                            |
+|-------------------------------------------------------|-------------------------------------|
+| `~/Library/LaunchAgents/com.macpmd.<name>.plist`      | launchd plist (standard processes)  |
+| `/Library/LaunchDaemons/com.macpmd.<name>.plist`      | launchd plist (sudo processes)      |
+
+### Linux (systemd)
+
+| Path                                                  | Purpose                            |
+|-------------------------------------------------------|-------------------------------------|
+| `~/.config/systemd/user/macpmd-<name>.service`        | systemd unit (standard processes)   |
+| `/etc/systemd/system/macpmd-<name>.service`           | systemd unit (sudo processes)       |

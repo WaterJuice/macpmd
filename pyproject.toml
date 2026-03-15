@@ -13,9 +13,9 @@ license = "Unlicense"
 authors = [
     { name = "WaterJuice" },
 ]
-description = "macOS process manager — a PM2 equivalent using launchd for persistence"
+description = "Process manager — a PM2 equivalent using launchd/systemd for persistence"
 readme = "ReadMe.md"
-keywords = ["process-manager", "macos", "launchd", "pm2", "daemon", "cli"]
+keywords = ["process-manager", "macos", "linux", "launchd", "systemd", "pm2", "daemon", "cli"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -23,6 +23,7 @@ classifiers = [
     "Intended Audience :: System Administrators",
     "License :: OSI Approved :: The Unlicense (Unlicense)",
     "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",

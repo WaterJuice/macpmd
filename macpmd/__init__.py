@@ -2,7 +2,7 @@
 #   macpmd
 #   -----
 #
-#   macOS process manager — a PM2 equivalent using launchd for persistence.
+#   Process manager — a PM2 equivalent using launchd/systemd for persistence.
 #
 #   (c) 2026 WaterJuice — Released under the Unlicense; see LICENSE.
 #

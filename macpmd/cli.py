@@ -4,7 +4,7 @@
 #
 #   CLI argument parsing and subcommand handlers. Provides commands for adding,
 #   starting, stopping, restarting, deleting, listing processes, viewing logs,
-#   and setting up launchd persistence.
+#   and managing service persistence (launchd on macOS, systemd on Linux).
 #
 #   (c) 2026 WaterJuice — Released under the Unlicense; see LICENSE.
 #
@@ -30,15 +30,13 @@ from pathlib import Path
 from pathlib import PurePosixPath
 from .argbuilder import ArgsParser
 from .argbuilder import Namespace
+from .backend import get_backend
 from .colour import bold
 from .colour import cyan
 from .colour import dim
 from .colour import green
 from .colour import red
 from .colour import yellow
-from .launchd import install_plist
-from .launchd import is_plist_installed
-from .launchd import uninstall_plist
 from .logs import delete_logs
 from .logs import follow_log
 from .logs import follow_logs_all
@@ -66,7 +64,7 @@ _COL_PID = 10
 _COL_UPTIME = 16
 _COL_RESTARTS = 10
 _COL_SUDO = 8
-_COL_LAUNCHD = 10
+_COL_SERVICE = 10
 
 # Type alias for subcommand handler functions.
 _CommandHandler = Callable[[Namespace], int]
@@ -123,7 +121,7 @@ def _create_parser() -> ArgsParser:
     """Build the argument parser with subcommands."""
     parser = ArgsParser(
         prog="macpmd",
-        description="macOS process manager using launchd for persistence.",
+        description="Process manager using launchd/systemd for persistence.",
         version=f"macpmd: {VERSION_STR}\npython: {sys.version.split()[0]}",
     )
 
@@ -302,7 +300,7 @@ def _create_parser() -> ArgsParser:
     # fix --------------------------------------------------------------------
     parser.add_command(
         "fix",
-        help="Reinstall missing launchd plists for running processes",
+        help="Reinstall missing service files for running processes",
     )
 
     return parser
@@ -527,8 +525,8 @@ def _cmd_add(args: Namespace) -> int:
     cwd = os.getcwd()
     env = dict(os.environ)
 
-    # For sudo processes, check for TCC-protected paths that will fail as LaunchDaemons
-    if use_sudo:
+    # On macOS, check for TCC-protected paths that will fail as LaunchDaemons
+    if use_sudo and sys.platform == "darwin":
         tcc_warning = _check_tcc_paths(command, cwd)
         if tcc_warning:
             print(red(tcc_warning), file=sys.stderr)
@@ -559,12 +557,13 @@ def _cmd_add(args: Namespace) -> int:
 
     print(green(msg))
 
-    # Install launchd plist for boot persistence and crash recovery
-    plist_ok, plist_msg = install_plist(entry)
-    if plist_ok:
-        print(dim(plist_msg))
+    # Install service file for boot persistence and crash recovery
+    backend = get_backend()
+    svc_ok, svc_msg = backend.install_service(entry)
+    if svc_ok:
+        print(dim(svc_msg))
     else:
-        print(yellow(f"Warning: {plist_msg}"), file=sys.stderr)
+        print(yellow(f"Warning: {svc_msg}"), file=sys.stderr)
 
     return 0
 
@@ -582,6 +581,7 @@ def _cmd_start(args: Namespace) -> int:
         print(red("Failed to obtain sudo credentials."), file=sys.stderr)
         return 1
 
+    backend = get_backend()
     rc = 0
     for name in names:
         entry = get_process(name)
@@ -609,12 +609,12 @@ def _cmd_start(args: Namespace) -> int:
 
         print(green(msg))
 
-        # Install launchd plist for boot persistence and crash recovery
-        plist_ok, plist_msg = install_plist(entry)
-        if plist_ok:
-            print(dim(plist_msg))
+        # Install service file for boot persistence and crash recovery
+        svc_ok, svc_msg = backend.install_service(entry)
+        if svc_ok:
+            print(dim(svc_msg))
         else:
-            print(yellow(f"Warning: {plist_msg}"), file=sys.stderr)
+            print(yellow(f"Warning: {svc_msg}"), file=sys.stderr)
 
     return rc
 
@@ -642,6 +642,7 @@ def _cmd_stop(args: Namespace) -> int:
         print(red("Failed to obtain sudo credentials."), file=sys.stderr)
         return 1
 
+    backend = get_backend()
     rc = 0
     for name in names:
         entry = get_process(name)
@@ -650,9 +651,9 @@ def _cmd_stop(args: Namespace) -> int:
             rc = 1
             continue
 
-        # Uninstall launchd plist first so launchd does not restart the process
-        if is_plist_installed(name):
-            uninstall_plist(name, sudo=entry.sudo)
+        # Uninstall service first so the service manager does not restart the process
+        if backend.is_service_installed(name):
+            backend.uninstall_service(name, sudo=entry.sudo)
 
         ok, msg = stop_process(entry)
         if ok:
@@ -677,6 +678,7 @@ def _cmd_restart(args: Namespace) -> int:
         print(red("Failed to obtain sudo credentials."), file=sys.stderr)
         return 1
 
+    backend = get_backend()
     rc = 0
     for name in names:
         entry = get_process(name)
@@ -685,9 +687,9 @@ def _cmd_restart(args: Namespace) -> int:
             rc = 1
             continue
 
-        # Uninstall plist before stopping so launchd does not interfere
-        if is_plist_installed(name):
-            uninstall_plist(name, sudo=entry.sudo)
+        # Uninstall service before stopping so the service manager does not interfere
+        if backend.is_service_installed(name):
+            backend.uninstall_service(name, sudo=entry.sudo)
 
         ok, msg = restart_process(entry)
         if not ok:
@@ -697,12 +699,12 @@ def _cmd_restart(args: Namespace) -> int:
 
         print(green(msg))
 
-        # Reinstall launchd plist with updated state
-        plist_ok, plist_msg = install_plist(entry)
-        if plist_ok:
-            print(dim(plist_msg))
+        # Reinstall service file with updated state
+        svc_ok, svc_msg = backend.install_service(entry)
+        if svc_ok:
+            print(dim(svc_msg))
         else:
-            print(yellow(f"Warning: {plist_msg}"), file=sys.stderr)
+            print(yellow(f"Warning: {svc_msg}"), file=sys.stderr)
 
     return rc
 
@@ -732,9 +734,10 @@ def _cmd_delete(args: Namespace) -> int:
         if entry.status == "running" and is_process_alive(entry.pid):
             stop_process(entry)
 
-        # Uninstall launchd plist if present
-        if is_plist_installed(name):
-            uninstall_plist(name, sudo=entry.sudo)
+        # Uninstall service file if present
+        backend = get_backend()
+        if backend.is_service_installed(name):
+            backend.uninstall_service(name, sudo=entry.sudo)
 
         # Delete logs
         delete_logs(name)
@@ -755,6 +758,9 @@ def _cmd_list(_args: Namespace) -> int:
         print(dim("No processes registered."))
         return 0
 
+    backend = get_backend()
+    svc_label = backend.service_label()
+
     # Table header
     hdr = (
         f"{'Name':<{_COL_NAME}}"
@@ -763,7 +769,7 @@ def _cmd_list(_args: Namespace) -> int:
         f"{'Uptime':<{_COL_UPTIME}}"
         f"{'Restarts':<{_COL_RESTARTS}}"
         f"{'Sudo':<{_COL_SUDO}}"
-        f"{'launchd':<{_COL_LAUNCHD}}"
+        f"{svc_label:<{_COL_SERVICE}}"
     )
     print(bold(hdr))
     total_width = (
@@ -773,7 +779,7 @@ def _cmd_list(_args: Namespace) -> int:
         + _COL_UPTIME
         + _COL_RESTARTS
         + _COL_SUDO
-        + _COL_LAUNCHD
+        + _COL_SERVICE
     )
     print(dim("-" * total_width))
 
@@ -790,13 +796,13 @@ def _cmd_list(_args: Namespace) -> int:
         )
         restarts_str = str(entry.restarts)
         sudo_str = "yes" if entry.sudo else "no"
-        has_plist = is_plist_installed(name)
-        if has_plist:
-            launchd_str = green("yes")
+        has_service = backend.is_service_installed(name)
+        if has_service:
+            service_str = green("yes")
         elif entry.status == "running":
-            launchd_str = red("no")
+            service_str = red("no")
         else:
-            launchd_str = dim("no")
+            service_str = dim("no")
 
         # Pad plain text before colourising
         status_plain = entry.status
@@ -812,10 +818,10 @@ def _cmd_list(_args: Namespace) -> int:
             if entry.sudo
             else dim(sudo_str.ljust(_COL_SUDO))
         )
-        col_launchd = launchd_str
+        col_service = service_str
 
         print(
-            f"{col_name}{col_status}{col_pid}{col_uptime}{col_restarts}{col_sudo}{col_launchd}"
+            f"{col_name}{col_status}{col_pid}{col_uptime}{col_restarts}{col_sudo}{col_service}"
         )
 
     return 0
@@ -832,6 +838,8 @@ def _cmd_info(args: Namespace) -> int:
 
     use_json: bool = args.json_output
     json_entries: list[dict[str, object]] = []
+    backend = get_backend()
+    svc_label = backend.service_label()
 
     rc = 0
     for i, name in enumerate(names):
@@ -843,7 +851,7 @@ def _cmd_info(args: Namespace) -> int:
 
         refresh_status(entry)
 
-        has_plist = is_plist_installed(name)
+        has_service = backend.is_service_installed(name)
         uptime_str = (
             _format_uptime(entry.started_at) if entry.status == "running" else "-"
         )
@@ -860,7 +868,7 @@ def _cmd_info(args: Namespace) -> int:
                     "started_at": entry.started_at,
                     "restarts": entry.restarts,
                     "sudo": entry.sudo,
-                    "launchd": has_plist,
+                    svc_label: has_service,
                 }
             )
         else:
@@ -875,7 +883,7 @@ def _cmd_info(args: Namespace) -> int:
             print(f"{bold('Uptime:')}      {uptime_str}")
             print(f"{bold('Restarts:')}    {entry.restarts}")
             print(f"{bold('Sudo:')}        {'yes' if entry.sudo else 'no'}")
-            print(f"{bold('launchd:')}     {'yes' if has_plist else 'no'}")
+            print(f"{bold(svc_label + ':')}     {'yes' if has_service else 'no'}")
 
     if use_json:
         output = json_entries[0] if len(json_entries) == 1 else json_entries
@@ -886,20 +894,21 @@ def _cmd_info(args: Namespace) -> int:
 
 # ----------------------------------------------------------------------------------------
 def _cmd_fix(_args: Namespace) -> int:
-    """Reinstall missing launchd plists for running processes."""
+    """Reinstall missing service files for running processes."""
     processes = refresh_all_statuses()
     if not processes:
         print(dim("No processes registered."))
         return 0
 
+    backend = get_backend()
     fixed = 0
     for name, entry in sorted(processes.items()):
-        if entry.status == "running" and not is_plist_installed(name):
+        if entry.status == "running" and not backend.is_service_installed(name):
             if entry.sudo:
                 if not _ensure_sudo():
                     print(red("Failed to obtain sudo credentials."), file=sys.stderr)
                     return 1
-            ok, msg = install_plist(entry)
+            ok, msg = backend.install_service(entry)
             if ok:
                 print(green(f"Fixed '{name}': {msg}"))
                 fixed += 1
@@ -907,7 +916,8 @@ def _cmd_fix(_args: Namespace) -> int:
                 print(red(f"Failed to fix '{name}': {msg}"), file=sys.stderr)
 
     if fixed == 0:
-        print(dim("Nothing to fix — all running processes have launchd plists."))
+        svc_label = backend.service_label()
+        print(dim(f"Nothing to fix — all running processes have {svc_label} services."))
 
     return 0
 
@@ -1023,8 +1033,8 @@ def _main_inner() -> int:
     args: Namespace = parser.parse()
 
     # Check platform after parsing so --help and --version work on any OS.
-    if sys.platform != "darwin":
-        print("macpmd requires macOS.", file=sys.stderr)
+    if sys.platform not in ("darwin", "linux"):
+        print("macpmd requires macOS or Linux.", file=sys.stderr)
         return 1
 
     commands: dict[str, _CommandHandler] = {

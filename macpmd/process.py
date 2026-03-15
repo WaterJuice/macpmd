@@ -65,10 +65,10 @@ def _get_pid_from_log(name: str) -> int:
 
 # ----------------------------------------------------------------------------------------
 def _discover_pid(name: str, sudo: bool) -> int:
-    """Try to find the current PID for a process via launchctl or log fallback."""
-    from .launchd import get_launchd_pid
+    """Try to find the current PID for a process via the service backend or log fallback."""
+    from .backend import get_backend
 
-    pid = get_launchd_pid(name, sudo=sudo)
+    pid = get_backend().get_service_pid(name, sudo=sudo)
     if pid > 0:
         return pid
 
@@ -95,15 +95,17 @@ def is_process_alive(pid: int) -> bool:
 def refresh_status(entry: ProcessEntry) -> ProcessEntry:
     """Update a process entry's status based on whether its PID is alive.
 
-    If the stored PID is dead but a launchd plist is installed, queries launchd
-    for the real PID (launchd may have restarted the process).
+    If the stored PID is dead but a service file is installed, queries the
+    service backend for the real PID (it may have restarted the process).
     """
-    from .launchd import is_plist_installed
+    from .backend import get_backend
+
+    backend = get_backend()
 
     if entry.status == "running" and entry.pid > 0:
         if not is_process_alive(entry.pid):
-            # Check if launchd restarted the process with a new PID
-            if is_plist_installed(entry.name):
+            # Check if the service manager restarted the process with a new PID
+            if backend.is_service_installed(entry.name):
                 new_pid = _discover_pid(entry.name, entry.sudo)
                 if new_pid > 0 and is_process_alive(new_pid):
                     entry.pid = new_pid
@@ -111,7 +113,9 @@ def refresh_status(entry: ProcessEntry) -> ProcessEntry:
                     return entry
             entry.status = "errored"
             entry.pid = 0
-    elif entry.status in ("errored", "stopped") and is_plist_installed(entry.name):
+    elif entry.status in ("errored", "stopped") and backend.is_service_installed(
+        entry.name
+    ):
         # Process was marked dead but launchd may have restarted it
         new_pid = _discover_pid(entry.name, entry.sudo)
         if new_pid > 0 and is_process_alive(new_pid):
