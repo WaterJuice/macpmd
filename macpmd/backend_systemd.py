@@ -279,7 +279,18 @@ def _shell_escape(value: str) -> str:
     """Escape a value for use in a systemd unit file.
 
     Wraps the value in double quotes and escapes backslashes, double quotes,
-    and newlines per the systemd.syntax(7) specification.
+    newlines, percent signs, and dollar signs per the systemd.syntax(7) and
+    systemd.service(5) specifications.
+
+    Percent signs must be doubled because systemd expands specifiers like
+    %s, %d, %n etc. Dollar signs must be doubled because systemd performs
+    its own variable expansion before passing the command to the shell.
     """
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("%", "%%")
+        .replace("$", "$$")
+    )
     return f'"{escaped}"'
