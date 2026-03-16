@@ -172,11 +172,9 @@ def wrap_command(command: str) -> str:
     # Use a subshell so $? captures the command's exit code, not printf's
     ts = "$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
     return (
-        f'printf \'[macpmd] Process started at %s (PID %s)\\n\' "{ts}" "$$"; '
-        f"( {command} ); "
-        f"_macpmd_rc=$?; "
-        f'printf \'[macpmd] Process exited at %s with code %d\\n\' "{ts}" "$_macpmd_rc"; '
-        f'exit "$_macpmd_rc"'
+        f'printf \'[macpmd] Process started at %s (PID %s)\\n\' "{ts}" "$$"; ('
+        f" {command} ); _macpmd_rc=$?; printf '[macpmd] Process exited at %s with code"
+        f' %d\\n\' "{ts}" "$_macpmd_rc"; exit "$_macpmd_rc"'
     )
 
 

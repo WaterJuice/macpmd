@@ -410,9 +410,9 @@ def _check_tcc_paths(command: str, cwd: str) -> str | None:
             if top_dir in _TCC_PROTECTED_DIRS:
                 return (
                     f"Cannot use --sudo with paths in ~/{top_dir}/.\n"
-                    f"macOS prevents LaunchDaemons from accessing TCC-protected\n"
-                    f"directories (Desktop, Documents, Downloads). Move the command\n"
-                    f"and working directory elsewhere (e.g. ~/bin/)."
+                    "macOS prevents LaunchDaemons from accessing TCC-protected\n"
+                    "directories (Desktop, Documents, Downloads). Move the command\n"
+                    "and working directory elsewhere (e.g. ~/bin/)."
                 )
 
     # Also check each token in the command for paths
@@ -426,9 +426,9 @@ def _check_tcc_paths(command: str, cwd: str) -> str | None:
             if top_dir in _TCC_PROTECTED_DIRS:
                 return (
                     f"Cannot use --sudo with paths in ~/{top_dir}/.\n"
-                    f"macOS prevents LaunchDaemons from accessing TCC-protected\n"
-                    f"directories (Desktop, Documents, Downloads). Move the command\n"
-                    f"and working directory elsewhere (e.g. ~/bin/)."
+                    "macOS prevents LaunchDaemons from accessing TCC-protected\n"
+                    "directories (Desktop, Documents, Downloads). Move the command\n"
+                    "and working directory elsewhere (e.g. ~/bin/)."
                 )
 
     return None
