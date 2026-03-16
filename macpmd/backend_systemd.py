@@ -259,7 +259,7 @@ def _generate_unit(entry: ProcessEntry) -> str:
 
     if entry.env:
         for key, value in entry.env.items():
-            lines.append(f"Environment={_shell_escape(f'{key}={value}')}")
+            lines.append(f"Environment={_env_escape(f'{key}={value}')}")
 
     lines.extend(
         [
@@ -276,7 +276,7 @@ def _generate_unit(entry: ProcessEntry) -> str:
 
 # ----------------------------------------------------------------------------------------
 def _shell_escape(value: str) -> str:
-    """Escape a value for use in a systemd unit file.
+    """Escape a value for use in a systemd ExecStart directive.
 
     Wraps the value in double quotes and escapes backslashes, double quotes,
     newlines, percent signs, and dollar signs per the systemd.syntax(7) and
@@ -292,5 +292,23 @@ def _shell_escape(value: str) -> str:
         .replace("\n", "\\n")
         .replace("%", "%%")
         .replace("$", "$$")
+    )
+    return f'"{escaped}"'
+
+
+# ----------------------------------------------------------------------------------------
+def _env_escape(value: str) -> str:
+    """Escape a value for use in a systemd Environment directive.
+
+    Wraps the value in double quotes and escapes backslashes, double quotes,
+    newlines, and percent signs. Unlike ExecStart, systemd does not perform
+    dollar-sign variable expansion in Environment directives, so dollar signs
+    are left as-is.
+    """
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("%", "%%")
     )
     return f'"{escaped}"'

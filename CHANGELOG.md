@@ -1,3 +1,13 @@
+# macpmd 1.0.0 Beta 6 — 16 Mar 2026
+
+## Bug Fixes
+
+- **Fix systemd environment variable escaping** — dollar signs in environment variables were incorrectly doubled for `Environment=` directives, corrupting any env var containing `$` on Linux
+- **Fix launchd uninstall error reporting** — `uninstall_service` now correctly reports failure when `launchctl unload` fails, instead of silently returning success
+- **Fix sudo timeout handling** — `_ensure_sudo` now catches `TimeoutExpired` and returns a clean error message instead of an unhandled exception traceback
+- **Remove redundant sudo credential check** — `_cmd_start` no longer prompts for sudo credentials twice (once upfront and once per-entry)
+- **Warn when replacing existing process** — `add --name` now prints a warning when overwriting a stopped or errored process instead of silently replacing it
+
 # macpmd 1.0.0 Beta 5 — 15 Mar 2026
 
 ## Linux Support

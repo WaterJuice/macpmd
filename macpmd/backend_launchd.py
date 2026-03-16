@@ -143,7 +143,7 @@ class LaunchdBackend(ServiceBackend):
 
         if result.returncode != 0:
             stderr = result.stderr.strip()
-            return True, f"Removed plist (unload warning: {stderr})."
+            return False, f"Removed plist but launchctl unload failed: {stderr}"
 
         return True, f"Uninstalled launchd plist for '{name}'."
 

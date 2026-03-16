@@ -482,19 +482,23 @@ def _unique_name(base_name: str) -> str:
 # ----------------------------------------------------------------------------------------
 def _ensure_sudo() -> bool:
     """Ensure sudo credentials are available. Returns True on success."""
-    check = subprocess.run(
-        ["sudo", "-n", "true"],  # noqa: S603, S607
-        capture_output=True,
-        timeout=10,
-    )
-    if check.returncode == 0:
-        return True
-    print(dim("sudo credentials required for this operation."))
-    result = subprocess.run(
-        ["sudo", "-v"],  # noqa: S603, S607
-        timeout=60,
-    )
-    return result.returncode == 0
+    try:
+        check = subprocess.run(
+            ["sudo", "-n", "true"],  # noqa: S603, S607
+            capture_output=True,
+            timeout=10,
+        )
+        if check.returncode == 0:
+            return True
+        print(dim("sudo credentials required for this operation."))
+        result = subprocess.run(
+            ["sudo", "-v"],  # noqa: S603, S607
+            timeout=60,
+        )
+        return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        print(red("Timed out waiting for sudo credentials."), file=sys.stderr)
+        return False
 
 
 # ----------------------------------------------------------------------------------------
@@ -533,6 +537,14 @@ def _cmd_add(args: Namespace) -> int:
             return 1
 
     existing = get_process(name)
+    if existing is not None:
+        print(
+            yellow(
+                f"Process '{name}' already exists (status: {existing.status}). "
+                "Replacing with new command."
+            )
+        )
+
     entry = ProcessEntry(
         name=name,
         command=command,
@@ -593,13 +605,6 @@ def _cmd_start(args: Namespace) -> int:
         if entry.status == "running" and is_process_alive(entry.pid):
             print(yellow(f"Process '{name}' is already running (PID {entry.pid})."))
             continue
-
-        # For sudo processes, validate credentials
-        if entry.sudo:
-            if not _ensure_sudo():
-                print(red("Failed to obtain sudo credentials."), file=sys.stderr)
-                rc = 1
-                continue
 
         ok, msg = start_process(entry)
         if not ok:
