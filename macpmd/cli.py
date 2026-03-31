@@ -58,7 +58,8 @@ from .version import VERSION_STR
 #   Constants
 # ----------------------------------------------------------------------------------------
 
-_COL_NAME = 16
+_COL_NAME_MIN = 16
+_COL_NAME_MAX = 40
 _COL_STATUS = 12
 _COL_PID = 10
 _COL_UPTIME = 16
@@ -766,9 +767,13 @@ def _cmd_list(_args: Namespace) -> int:
     backend = get_backend()
     svc_label = backend.service_label()
 
+    # Compute name column width from longest process name
+    longest = max((len(n) for n in processes), default=0)
+    name_width = max(_COL_NAME_MIN, min(longest + 2, _COL_NAME_MAX))
+
     # Table header
     hdr = (
-        f"{'Name':<{_COL_NAME}}"
+        f"{'Name':<{name_width}}"
         f"{'Status':<{_COL_STATUS}}"
         f"{'PID':<{_COL_PID}}"
         f"{'Uptime':<{_COL_UPTIME}}"
@@ -778,7 +783,7 @@ def _cmd_list(_args: Namespace) -> int:
     )
     print(bold(hdr))
     total_width = (
-        _COL_NAME
+        name_width
         + _COL_STATUS
         + _COL_PID
         + _COL_UPTIME
@@ -791,7 +796,7 @@ def _cmd_list(_args: Namespace) -> int:
     for name, entry in sorted(processes.items()):
         # Truncate long names
         display_name = name
-        max_name = _COL_NAME - 1
+        max_name = name_width - 1
         if len(display_name) > max_name:
             display_name = display_name[: max_name - 1] + "\u2026"
 
@@ -811,7 +816,7 @@ def _cmd_list(_args: Namespace) -> int:
 
         # Pad plain text before colourising
         status_plain = entry.status
-        col_name = cyan(display_name.ljust(_COL_NAME))
+        col_name = cyan(display_name.ljust(name_width))
         col_status = _status_colour(status_plain) + " " * max(
             0, _COL_STATUS - len(status_plain)
         )

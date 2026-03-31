@@ -1,4 +1,4 @@
-# macpmd 1.0.0 Beta 6 — 16 Mar 2026
+# macpmd 1.0.0 Beta 8 — 31 Mar 2026
 
 ## Bug Fixes
 
