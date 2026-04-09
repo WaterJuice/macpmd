@@ -1,23 +1,4 @@
-# macpmd 1.0.0 Beta 8 — 31 Mar 2026
-
-## Bug Fixes
-
-- **Fix systemd environment variable escaping** — dollar signs in environment variables were incorrectly doubled for `Environment=` directives, corrupting any env var containing `$` on Linux
-- **Fix launchd uninstall error reporting** — `uninstall_service` now correctly reports failure when `launchctl unload` fails, instead of silently returning success
-- **Fix sudo timeout handling** — `_ensure_sudo` now catches `TimeoutExpired` and returns a clean error message instead of an unhandled exception traceback
-- **Remove redundant sudo credential check** — `_cmd_start` no longer prompts for sudo credentials twice (once upfront and once per-entry)
-- **Warn when replacing existing process** — `add --name` now prints a warning when overwriting a stopped or errored process instead of silently replacing it
-
-# macpmd 1.0.0 Beta 5 — 15 Mar 2026
-
-## Linux Support
-
-- **systemd backend** — macpmd now supports Linux via systemd user services and system services
-- **Service backend abstraction** — platform-specific service managers are selected automatically (launchd on macOS, systemd on Linux)
-- **Linux service files** — systemd units installed in `~/.config/systemd/user/` (standard) or `/etc/systemd/system/` (sudo) with `Restart=always` for crash recovery
-- **TCC checks are macOS-only** — TCC path validation is now skipped on Linux where it does not apply
-
-# macpmd 1.0.0 Beta 4 — 10 Mar 2026
+# macpmd 1.0.0 — 9 Apr 2026
 
 Initial release.
 
@@ -34,9 +15,11 @@ Initial release.
 - **Exit code logging** — process exit codes and signals recorded in log with `[macpmd]` prefix
 - **Lifecycle logging** — process start, restart, and exit events logged automatically
 - **Immediate failure detection** — processes that exit immediately on `add` are reported as errors and not persisted
-- **launchd integration** — plists auto-installed on `add` for boot persistence and crash recovery
-- **launchd fix command** — `fix` reinstalls missing service files for running processes
-- **TCC path protection** — `--sudo` processes are blocked from using TCC-protected directories (Desktop, Documents, Downloads) that would fail when run as LaunchDaemons (macOS only)
+- **Cross-platform service backend** — platform-specific service managers selected automatically (launchd on macOS, systemd on Linux)
+- **launchd integration (macOS)** — plists auto-installed on `add` in `~/Library/LaunchAgents/` (standard) or `/Library/LaunchDaemons/` (sudo) for boot persistence and crash recovery
+- **systemd integration (Linux)** — units auto-installed on `add` in `~/.config/systemd/user/` (standard) or `/etc/systemd/system/` (sudo) with `Restart=always` for crash recovery
+- **Fix command** — `fix` reinstalls missing service files for running processes
+- **TCC path protection (macOS)** — `--sudo` processes are blocked from using TCC-protected directories (Desktop, Documents, Downloads) that would fail when run as LaunchDaemons
 - **Sudo support** — `--sudo` flag to run processes with elevated privileges
 - **Session isolation** — processes spawned in new sessions survive terminal closure
 - **Coloured output** — TTY-aware ANSI colours for status display and log prefixes
