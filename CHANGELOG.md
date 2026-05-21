@@ -1,3 +1,15 @@
+# macpmd 1.0.1 — 21 May 2026
+
+## Fixes
+
+- **Single-launch start** — `add`, `start`, and `restart` no longer launch the process twice. Previously the process was spawned directly *and* by the service manager (launchd `RunAtLoad` / systemd `enable --now`), leaving two concurrent copies — or a crash-looping duplicate for single-instance services. The service manager is now the sole launcher, so the first run after `add` uses exactly the same context (session, environment, working directory) as a relaunch after reboot or crash. The tracked PID is read back from the service manager.
+- **`fix`** now relaunches a running-but-unmanaged process under the service manager (the manager cannot adopt an existing process) instead of installing a service alongside the existing copy.
+
+## Packaging
+
+- Marked Production/Stable.
+- Added documentation link: https://docs.waterjuice.org/macpmd/latest/
+
 # macpmd 1.0.0 — 9 Apr 2026
 
 Initial release.

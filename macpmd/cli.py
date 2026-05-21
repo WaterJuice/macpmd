@@ -11,6 +11,7 @@
 #   Version History
 #   ---------------
 #   Mar 2026 - Created
+#   May 2026 - Single-launch start/stop/restart via the service manager
 # ----------------------------------------------------------------------------------------
 
 # ----------------------------------------------------------------------------------------
@@ -561,6 +562,8 @@ def _cmd_add(args: Namespace) -> int:
             print(red("Failed to obtain sudo credentials."), file=sys.stderr)
             return 1
 
+    # start_process installs the service and lets the service manager launch the
+    # process, so the first run shares the same context as a relaunch after boot.
     ok, msg = start_process(entry)
     if not ok:
         # Process failed to start — remove it from state so it does not linger
@@ -569,14 +572,7 @@ def _cmd_add(args: Namespace) -> int:
         return 1
 
     print(green(msg))
-
-    # Install service file for boot persistence and crash recovery
-    backend = get_backend()
-    svc_ok, svc_msg = backend.install_service(entry)
-    if svc_ok:
-        print(dim(svc_msg))
-    else:
-        print(yellow(f"Warning: {svc_msg}"), file=sys.stderr)
+    print(dim(f"Installed {get_backend().service_label()} service for '{name}'."))
 
     return 0
 
@@ -614,13 +610,7 @@ def _cmd_start(args: Namespace) -> int:
             continue
 
         print(green(msg))
-
-        # Install service file for boot persistence and crash recovery
-        svc_ok, svc_msg = backend.install_service(entry)
-        if svc_ok:
-            print(dim(svc_msg))
-        else:
-            print(yellow(f"Warning: {svc_msg}"), file=sys.stderr)
+        print(dim(f"Installed {backend.service_label()} service for '{name}'."))
 
     return rc
 
@@ -648,7 +638,6 @@ def _cmd_stop(args: Namespace) -> int:
         print(red("Failed to obtain sudo credentials."), file=sys.stderr)
         return 1
 
-    backend = get_backend()
     rc = 0
     for name in names:
         entry = get_process(name)
@@ -657,10 +646,8 @@ def _cmd_stop(args: Namespace) -> int:
             rc = 1
             continue
 
-        # Uninstall service first so the service manager does not restart the process
-        if backend.is_service_installed(name):
-            backend.uninstall_service(name, sudo=entry.sudo)
-
+        # stop_process removes the service first so the service manager does not
+        # restart the process the moment it is killed.
         ok, msg = stop_process(entry)
         if ok:
             print(green(msg))
@@ -684,7 +671,6 @@ def _cmd_restart(args: Namespace) -> int:
         print(red("Failed to obtain sudo credentials."), file=sys.stderr)
         return 1
 
-    backend = get_backend()
     rc = 0
     for name in names:
         entry = get_process(name)
@@ -693,10 +679,8 @@ def _cmd_restart(args: Namespace) -> int:
             rc = 1
             continue
 
-        # Uninstall service before stopping so the service manager does not interfere
-        if backend.is_service_installed(name):
-            backend.uninstall_service(name, sudo=entry.sudo)
-
+        # restart_process removes the service, kills the running copy, then
+        # reinstalls and relaunches via the service manager.
         ok, msg = restart_process(entry)
         if not ok:
             print(red(msg), file=sys.stderr)
@@ -704,13 +688,6 @@ def _cmd_restart(args: Namespace) -> int:
             continue
 
         print(green(msg))
-
-        # Reinstall service file with updated state
-        svc_ok, svc_msg = backend.install_service(entry)
-        if svc_ok:
-            print(dim(svc_msg))
-        else:
-            print(yellow(f"Warning: {svc_msg}"), file=sys.stderr)
 
     return rc
 
@@ -736,14 +713,8 @@ def _cmd_delete(args: Namespace) -> int:
             rc = 1
             continue
 
-        # Stop if running
-        if entry.status == "running" and is_process_alive(entry.pid):
-            stop_process(entry)
-
-        # Uninstall service file if present
-        backend = get_backend()
-        if backend.is_service_installed(name):
-            backend.uninstall_service(name, sudo=entry.sudo)
+        # Stop the process and remove its service (safe even if already stopped)
+        stop_process(entry)
 
         # Delete logs
         delete_logs(name)
@@ -904,7 +875,7 @@ def _cmd_info(args: Namespace) -> int:
 
 # ----------------------------------------------------------------------------------------
 def _cmd_fix(_args: Namespace) -> int:
-    """Reinstall missing service files for running processes."""
+    """Relaunch running-but-unmanaged processes under the service manager."""
     processes = refresh_all_statuses()
     if not processes:
         print(dim("No processes registered."))
@@ -918,7 +889,12 @@ def _cmd_fix(_args: Namespace) -> int:
                 if not _ensure_sudo():
                     print(red("Failed to obtain sudo credentials."), file=sys.stderr)
                     return 1
-            ok, msg = backend.install_service(entry)
+            # Running without a service (e.g. spawned by an older macpmd that
+            # launched directly). The service manager cannot adopt an existing
+            # process, so stop the unmanaged copy and relaunch it as a service —
+            # giving exactly one managed instance.
+            stop_process(entry)
+            ok, msg = start_process(entry)
             if ok:
                 print(green(f"Fixed '{name}': {msg}"))
                 fixed += 1

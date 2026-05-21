@@ -17,7 +17,7 @@ description = "Process manager — a PM2 equivalent using launchd/systemd for pe
 readme = "ReadMe.md"
 keywords = ["process-manager", "macos", "linux", "launchd", "systemd", "pm2", "daemon", "cli"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",
@@ -36,6 +36,7 @@ dependencies = [
 ]
 
 [project.urls]
+Documentation = "https://docs.waterjuice.org/macpmd/latest/"
 Source = "https://github.com/WaterJuice/macpmd"
 
 [project.scripts]

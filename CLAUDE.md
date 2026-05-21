@@ -98,10 +98,11 @@ macpmd/
 ## Architecture
 
 ### Process Management
-- Processes are spawned via `subprocess.Popen` with `start_new_session=True`
+- The service manager (launchd/systemd) is the **sole launcher** — `start_process` installs the service, which launches the process; the PID is read back from the manager. This means the first run after `add` shares the same context as a relaunch after boot or crash, and there is never a second, unmanaged copy
+- After install, `start_process` waits a short settle period and confirms a live PID; if the command failed immediately the service is torn down and recent log output is reported
 - stdout/stderr are redirected to `~/.local/share/macpmd/logs/<name>.log`
 - State is persisted in `~/.local/share/macpmd/state.json`
-- Stopping sends SIGTERM to the process group, then SIGKILL after 3 seconds
+- `stop_process` uninstalls the service first (so the manager will not relaunch), then sends SIGTERM to the process group, then SIGKILL after 3 seconds
 - Commands are wrapped in a shell snippet that logs start/exit events to stdout (the log file)
 - Process lifecycle events (start, restart, exit) are logged with `[macpmd]` prefix
 
@@ -148,7 +149,7 @@ macpmd/
 
 1. **argbuilder for CLI** — custom argparse wrapper, zero dependencies.
 2. **Shell execution** — commands run via `shell=True` for user convenience (pipes, env vars, etc.).
-3. **Session isolation** — `start_new_session=True` so processes survive terminal closure.
+3. **Service manager is the sole launcher** — processes are launched by launchd/systemd (not a direct `Popen`), so the first run, boot, and crash-recovery all share one context, and processes survive terminal closure.
 4. **Service backend abstraction** — `ServiceBackend` ABC with launchd (macOS) and systemd (Linux) implementations.
 5. **Auto-install services** — no separate `startup` command; service files installed on `add`.
 6. **Simple state file** — JSON in ~/.local/share/macpmd/ for easy debugging and manual inspection.

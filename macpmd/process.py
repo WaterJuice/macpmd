@@ -2,15 +2,17 @@
 #   process.py
 #   ----------
 #
-#   Process spawning and management. Uses subprocess.Popen with os.setsid()
-#   for process group isolation. Handles starting, stopping, and checking
-#   process status.
+#   Process spawning and management. The service manager (launchd on macOS,
+#   systemd on Linux) is the sole launcher: starting a process installs its
+#   service, which launches it, and the PID is read back from the manager.
+#   Handles starting, stopping, restarting, and checking process status.
 #
 #   (c) 2026 WaterJuice — Released under the Unlicense; see LICENSE.
 #
 #   Version History
 #   ---------------
 #   Mar 2026 - Created
+#   May 2026 - Launch via the service manager only (no direct Popen spawn)
 # ----------------------------------------------------------------------------------------
 
 # ----------------------------------------------------------------------------------------
@@ -179,75 +181,82 @@ def wrap_command(command: str) -> str:
 
 
 # ----------------------------------------------------------------------------------------
+_START_SETTLE_SECONDS = 1.5
+
+
+# ----------------------------------------------------------------------------------------
+def _await_service_pid(entry: ProcessEntry) -> int:
+    """Wait for the service manager to report a stable, live PID after start.
+
+    Sleeps a short settle period so that an immediate failure (a missing
+    executable, a permission error, an instantly-exiting command) has time to
+    manifest: a crash-looping service is throttled by launchd/systemd, so its
+    PID reads as 0 here. Returns the live PID, or 0 if the process never came up.
+    """
+    from .backend import get_backend
+
+    backend = get_backend()
+    time.sleep(_START_SETTLE_SECONDS)
+    for _ in range(3):
+        pid = backend.get_service_pid(entry.name, sudo=entry.sudo)
+        if pid > 0 and is_process_alive(pid):
+            return pid
+        time.sleep(0.2)
+    return 0
+
+
+# ----------------------------------------------------------------------------------------
 def start_process(entry: ProcessEntry) -> tuple[bool, str]:
     """
-    Start a process. Returns (success, message).
+    Start a process by installing its service and letting the service manager
+    launch it. Returns (success, message).
 
-    The process is spawned in a new session (os.setsid) so it survives
-    the parent terminal closing. stdout and stderr are redirected to the
-    log file. The command is wrapped to log start and exit events.
+    The service manager (launchd on macOS, systemd on Linux) is the sole
+    launcher: it runs the command at install time, on boot, and after a crash.
+    Routing the first launch through it too means an `add` runs the process in
+    exactly the same context (session, environment, working directory) as a
+    relaunch after reboot — there is never a second, unmanaged copy.
     """
+    from .backend import get_backend
+
+    backend = get_backend()
+
     # If already running, do not start again
     if entry.status == "running" and is_process_alive(entry.pid):
         return False, f"Process '{entry.name}' is already running (PID {entry.pid})."
 
-    # Rotate log if needed before starting
+    # Rotate log if needed so the start banner lands in a fresh file
     rotate_log(entry.name)
 
-    log_path = get_log_path(entry.name)
-    cwd = entry.cwd if entry.cwd else None
-
-    try:
-        log_file = open(log_path, "a", encoding="utf-8")  # noqa: SIM115
-    except OSError as e:
-        return False, f"Failed to open log file: {e}"
-
-    shell_command = f"sudo {entry.command}" if entry.sudo else entry.command
-    wrapped_command = wrap_command(shell_command)
-
-    try:
-        proc = subprocess.Popen(
-            wrapped_command,
-            shell=True,  # noqa: S602
-            cwd=cwd,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            env=entry.env if entry.env else None,
-        )
-    except OSError as e:
-        log_file.close()
-        return False, f"Failed to start process: {e}"
-
-    entry.pid = proc.pid
-    entry.status = "running"
-    entry.started_at = datetime.now(UTC).isoformat()
-    update_process(entry)
-
-    # Close our handle to the log file — the child process has its own
-    log_file.close()
-
-    # Poll briefly to catch commands that fail immediately (e.g. not found,
-    # not executable, permission denied). The shell wrapper adds a small
-    # overhead so we poll over 1.5 seconds rather than a single check.
-    exit_code = None
-    for _ in range(15):
-        time.sleep(0.1)
-        exit_code = proc.poll()
-        if exit_code is not None:
-            break
-    if exit_code is not None:
+    # Install the service. This also launches the process (RunAtLoad on launchd,
+    # `enable --now` on systemd).
+    ok, msg = backend.install_service(entry)
+    if not ok:
         entry.status = "errored"
         entry.pid = 0
         update_process(entry)
-        # Read recent log output for context on why it failed
+        return False, msg
+
+    # Confirm the process actually came up. If it failed immediately, tear the
+    # service down so it does not crash-loop, and surface recent log output.
+    pid = _await_service_pid(entry)
+    if pid <= 0:
+        backend.uninstall_service(entry.name, sudo=entry.sudo)
+        entry.status = "errored"
+        entry.pid = 0
+        update_process(entry)
         hint = _read_last_log_lines(entry.name, max_lines=5)
-        msg = f"Process '{entry.name}' exited immediately (code {exit_code})."
+        msg = f"Process '{entry.name}' failed to start (exited immediately)."
         if hint:
             msg += f"\n{hint}"
         return False, msg
 
-    return True, f"Process '{entry.name}' started (PID {proc.pid})."
+    entry.pid = pid
+    entry.status = "running"
+    entry.started_at = datetime.now(UTC).isoformat()
+    update_process(entry)
+
+    return True, f"Process '{entry.name}' started (PID {pid})."
 
 
 # ----------------------------------------------------------------------------------------
@@ -266,46 +275,51 @@ def _sudo_kill(pid: int, sig: signal.Signals) -> None:
 # ----------------------------------------------------------------------------------------
 def stop_process(entry: ProcessEntry) -> tuple[bool, str]:
     """
-    Stop a running process. Sends SIGTERM, then SIGKILL after a timeout.
-    Returns (success, message).
+    Stop a process and remove its service so the service manager does not
+    relaunch it. Sends SIGTERM to the tracked process, then SIGKILL after a
+    timeout. Returns (success, message).
     """
-    if entry.pid <= 0 or not is_process_alive(entry.pid):
-        entry.status = "stopped"
-        entry.pid = 0
-        update_process(entry)
-        return True, f"Process '{entry.name}' is not running."
+    from .backend import get_backend
+
+    backend = get_backend()
+
+    # Uninstall the service first so launchd/systemd does not immediately
+    # restart the process the moment we kill it. (Unloading the service also
+    # signals the managed process, so the tracked PID may already be gone.)
+    if backend.is_service_installed(entry.name):
+        backend.uninstall_service(entry.name, sudo=entry.sudo)
 
     pid = entry.pid
-
-    if entry.sudo:
-        _sudo_kill(pid, signal.SIGTERM)
-    else:
-        try:
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                pass
-
-    # Wait briefly for the process to exit
-    for _ in range(30):  # 3 seconds
-        if not is_process_alive(pid):
-            break
-        time.sleep(0.1)
-
-    # If still alive, send SIGKILL
-    if is_process_alive(pid):
+    if pid > 0 and is_process_alive(pid):
         if entry.sudo:
-            _sudo_kill(pid, signal.SIGKILL)
+            _sudo_kill(pid, signal.SIGTERM)
         else:
             try:
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
             except (ProcessLookupError, PermissionError):
                 try:
-                    os.kill(pid, signal.SIGKILL)
+                    os.kill(pid, signal.SIGTERM)
                 except (ProcessLookupError, PermissionError):
                     pass
+
+        # Wait briefly for the process to exit
+        for _ in range(30):  # 3 seconds
+            if not is_process_alive(pid):
+                break
+            time.sleep(0.1)
+
+        # If still alive, send SIGKILL
+        if is_process_alive(pid):
+            if entry.sudo:
+                _sudo_kill(pid, signal.SIGKILL)
+            else:
+                try:
+                    os.killpg(os.getpgid(pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError):
+                        pass
 
     entry.status = "stopped"
     entry.pid = 0
@@ -316,11 +330,14 @@ def stop_process(entry: ProcessEntry) -> tuple[bool, str]:
 
 # ----------------------------------------------------------------------------------------
 def restart_process(entry: ProcessEntry) -> tuple[bool, str]:
-    """Stop and restart a process. Returns (success, message)."""
-    if entry.status == "running" and is_process_alive(entry.pid):
-        ok, msg = stop_process(entry)
-        if not ok:
-            return False, msg
+    """Stop and restart a process. Returns (success, message).
+
+    stop_process removes the service (and kills any running copy); start_process
+    reinstalls it and relaunches via the service manager.
+    """
+    ok, msg = stop_process(entry)
+    if not ok:
+        return False, msg
 
     entry.restarts += 1
     _log_event(
