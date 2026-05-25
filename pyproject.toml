@@ -72,7 +72,7 @@ reportUnusedImport = "error"
 pythonVersion = "3.12"
 exclude = [".venv"]
 
-[tool.cal-publish-python]
+[tool.wj-publish]
 profile = "waterjuice"
 
 [dependency-groups]
@@ -81,5 +81,5 @@ dev = [
     "black",
     "pyright[nodejs]",
     "cal-mkdocs ; python_version >= '3.12'",
-    "cal-publish-python>=0.4.0 ; python_version >= '3.12'",
+    "wj-publish ; python_version >= '3.12'",
 ]

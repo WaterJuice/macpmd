@@ -33,7 +33,7 @@ build: check-dependencies format-check lint version docs
 # Publish (requires output/ from make build)
 .PHONY: publish
 publish: check-dependencies
-	uv run cal-publish-python --set-latest output/
+	uv run wj-publish output/
 
 # Generate CLI help files for documentation
 .PHONY: docs-help
