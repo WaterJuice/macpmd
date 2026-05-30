@@ -1,3 +1,7 @@
+# macpmd 1.0.2 — 30 May 2026
+
+Minor change for building environment, no code changes.
+
 # macpmd 1.0.1 — 21 May 2026
 
 ## Fixes

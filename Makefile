@@ -52,7 +52,7 @@ docs-help: check-dependencies version
 .PHONY: docs
 docs: docs-help
 	rm -rf html/
-	VERSION=$(VERSION_STR) uv run cal-mkdocs -f docs/mkdocs.yml -d docs/mkdocs -o html/
+	VERSION=$(VERSION_STR) uv run wj-mkdocs -f docs/mkdocs.yml -d docs/mkdocs -o html/
 	cp docs/docinfo.* html/
 	rm -rf docs/mkdocs/_include html/_include
 

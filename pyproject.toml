@@ -80,6 +80,6 @@ dev = [
     "ruff",
     "black",
     "pyright[nodejs]",
-    "cal-mkdocs ; python_version >= '3.12'",
+    "wj-mkdocs ; python_version >= '3.12'",
     "wj-publish ; python_version >= '3.12'",
 ]
